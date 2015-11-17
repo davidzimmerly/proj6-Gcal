@@ -4,28 +4,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <link rel="stylesheet" type="text/css"
-     href="//cdn.jsdelivr.net/bootstrap/latest/css/bootstrap.css"
-/>
+     href="//cdn.jsdelivr.net/bootstrap/latest/css/bootstrap.css" />
 
-<link rel="stylesheet" type="text/css"
- href="/static/js/node_modules/bootstrap-daterangepicker/daterangepicker.css"
-/>
-
-<link rel="stylesheet" type="text/css"
-    href="/static/css/busy.css"
-/>
-
+<link rel=stylesheet type=text/css href="/static/css/busy.min.css">
+<link rel="stylesheet" type="text/css" href="/static/css/6.css" />
 <!-- jquery from a content distribution network; probably cached -->
 <script type="text/javascript"
      src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js">
 </script>
 
+<!-- Include Required Prerequisites -->
+<script type="text/javascript" src="//cdn.jsdelivr.net/jquery/1/jquery.min.js"></script>
+<script type="text/javascript" src="//cdn.jsdelivr.net/momentjs/latest/moment.min.js"></script>
+<link rel="stylesheet" type="text/css" href="//cdn.jsdelivr.net/bootstrap/latest/css/bootstrap.css" />
+ 
+<!-- Include Date Range Picker -->
+<script type="text/javascript" src="//cdn.jsdelivr.net/bootstrap.daterangepicker/2/daterangepicker.js"></script>
+<link rel="stylesheet" type="text/css" href="//cdn.jsdelivr.net/bootstrap.daterangepicker/2/daterangepicker.css" />
+
+
 
 <!-- The rest of our javascript dependencies are bundled and -->
 <!-- 'minified' by 'browserify'  -->
-<script type="text/javascript" 
-   src="/static/js/busy.min.js">
-</script>
+
 
 </head>
 
@@ -52,7 +53,7 @@
 
 <h2>Date range</h2>
   <form action="/setrange" method="post">
-  <input type="text" name="daterange" size="12"
+  <input type="text" name="daterange" size="24"
     {% if session.daterange is defined %}
          value="{{session.daterange}}"
     {% endif %}
@@ -76,7 +77,8 @@
     });
   </script>
 
-<br /><input type="submit" value="Choose" />
+<br /><button type="submit" class="btn btn-primary btn-lg">Choose</button>
+<!--<input type="submit" value="Choose" />-->
 </form>
 
     <!--
@@ -86,18 +88,43 @@
     prefer down then across). 
     -->
 {% if session.calendars is defined  %}
+<b>Choose Calender:
   <div class="row">
   {% for cal in session.calendars if cal.selected %}
-          <div class="col-md-4">
-	   {{ cal.summary }}
+          <div class="col-md-3">
+
+
+<form action="{{ url_for('chooseCal') }}" method=post>
+<input type="hidden" class="form-control" name="id" value="{{ cal.id }}" />
+
+<button type="submit" class="btn btn-primary btn-sm" value="{{ cal.summary }}">{{ cal.summary }}</button>
+
+</form>           
           </div>
-         {% if loop.index is divisibleby 3 %}
+         {% if loop.index is divisibleby 4 %}
           </div> <div class="row">
          {% endif %}
   {% endfor %}
   </div>
 {% endif %}
+
+{% if session.events is defined  %}
+  <div class="row" name="background">
+  {% for event in session.events %}
+          <div class="col-md-6">
+		{{ event['start'].get('date')|fmtdate }}
+
+          </div>
+          <div class="col-md-6">
+		{{ event['start'].get('dateTime')|fmttimeblock }}
+	  </div>
+
+  {% endfor %}
+  </div>
+{% endif %}
     
+
+
 
   </div>  <!-- container (for bootstrap) -->
   </body> </html>

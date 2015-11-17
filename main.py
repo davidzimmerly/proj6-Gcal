@@ -1,8 +1,13 @@
+from __future__ import print_function
+import httplib2
+import os
+from oauth2client import tools
+
 import flask
-from flask import render_template
+
+from flask import render_template, redirect
 from flask import request
 from flask import url_for
-import uuid
 
 import json
 import logging
@@ -12,13 +17,15 @@ import arrow # Replacement for datetime, based on moment.js
 import datetime # But we still need time
 from dateutil import tz  # For interpreting local times
 
-
+from apiclient import discovery
 # OAuth2  - Google library implementation for convenience
+import oauth2client
 from oauth2client import client
+from oauth2client import tools
 import httplib2   # used in oauth2 flow
 
 # Google API for services 
-from apiclient import discovery
+
 
 ###
 # Globals
@@ -30,11 +37,20 @@ SCOPES = 'https://www.googleapis.com/auth/calendar.readonly'
 CLIENT_SECRET_FILE = CONFIG.GOOGLE_LICENSE_KEY  ## You'll need this
 APPLICATION_NAME = 'MeetMe class project'
 
+try:
+    import argparse
+    flags = argparse.ArgumentParser(parents=[tools.argparser]).parse_args()
+except ImportError:
+    flags = None
+
+
+
 #############################
 #
 #  Pages (routed from URLs)
 #
 #############################
+
 
 @app.route("/")
 @app.route("/index")
@@ -59,7 +75,58 @@ def choose():
     gcal_service = get_gcal_service(credentials)
     app.logger.debug("Returned from get_gcal_service")
     flask.session['calendars'] = list_calendars(gcal_service)
+    
     return render_template('index.html')
+
+@app.route("/chooseCal", methods=['POST'])
+def chooseCal():
+    redirect_to_index = redirect('/index')	    
+    response = app.make_response(redirect_to_index )
+    chosen_id = request.form["id"]
+
+    app.logger.debug("selected"+ str(chosen_id))
+
+    
+
+    credentials = valid_credentials()
+    
+    gcal_service = get_gcal_service(credentials)
+    eventsResult = gcal_service.events().list(
+        calendarId=chosen_id, timeMin=flask.session['begin_date'], timeMax = flask.session['end_date'], maxResults=50, singleEvents=True,
+        orderBy='startTime').execute()
+    events = eventsResult.get('items', [])
+
+
+    if not events:
+        print('No upcoming events found.')
+    
+    else:
+        for event in events:
+            start = event['start'].get('dateTime', event['start'].get('date'))
+            del event['summary']
+
+
+
+
+
+
+    #now = datetime.datetime.utcnow().isoformat() + 'Z' # 'Z' indicates UTC time
+    #print('Getting the upcoming 10 events')
+    #eventsResult = gcal_service.events().list(
+        #calendarId=chosen_id, timeMin=flask.session['begin_date'], timeMax = flask.session['end_date'],maxResults=30, singleEvents=True,
+        #orderBy='startTime').execute()
+    #events = eventsResult.get('items', [])
+    flask.session['events'] = events
+
+
+
+
+
+
+    #print("id=",id)
+    return response
+
+
 
 ####
 #
@@ -89,6 +156,36 @@ def choose():
 #  as a 'continuation' or 'return address' to use instead. 
 #
 ####
+
+
+def get_credentials():
+    """Gets valid user credentials from storage.
+
+    If nothing has been stored, or if the stored credentials are invalid,
+    the OAuth2 flow is completed to obtain the new credentials.
+
+    Returns:
+        Credentials, the obtained credential.
+    """
+    home_dir = os.path.expanduser('~')
+    credential_dir = os.path.join(home_dir, '.credentials')
+    if not os.path.exists(credential_dir):
+        os.makedirs(credential_dir)
+    credential_path = os.path.join(credential_dir,
+                                   'calendar-python-quickstart.json')
+
+    store = oauth2client.file.Storage(credential_path)
+    credentials = store.get()
+    if not credentials or credentials.invalid:
+        flow = client.flow_from_clientsecrets(CLIENT_SECRET_FILE, SCOPES)
+        flow.user_agent = APPLICATION_NAME
+        if flags:
+            credentials = tools.run_flow(flow, store, flags)
+        else: # Needed only for compatibility with Python 2.6
+            credentials = tools.run(flow, store)
+        print('Storing credentials to ' + credential_path)
+    return credentials
+
 
 def valid_credentials():
     """
@@ -219,6 +316,7 @@ def init_session_values():
     # Default time span each day, 8 to 5
     flask.session["begin_time"] = interpret_time("9am")
     flask.session["end_time"] = interpret_time("5pm")
+    
 
 def interpret_time( text ):
     """
@@ -299,6 +397,41 @@ def list_calendars(service):
             })
     return sorted(result, key=cal_sort_key)
 
+def list_calendars(service):
+    """
+    Given a google 'service' object, return a list of
+    calendars.  Each calendar is represented by a dict, so that
+    it can be stored in the session object and converted to
+    json for cookies. The returned list is sorted to have
+    the primary calendar first, and selected (that is, displayed in
+    Google Calendars web app) calendars before unselected calendars.
+    """
+    app.logger.debug("Entering list_calendars")  
+    calendar_list = service.calendarList().list().execute()["items"]
+    result = [ ]
+    for cal in calendar_list:
+        kind = cal["kind"]
+        id = cal["id"]
+        if "description" in cal: 
+            desc = cal["description"]
+        else:
+            desc = "(no description)"
+        summary = cal["summary"]
+        # Optional binary attributes with False as default
+        selected = ("selected" in cal) and cal["selected"]
+        primary = ("primary" in cal) and cal["primary"]
+        
+
+        result.append(
+          { "kind": kind,
+            "id": id,
+            "summary": summary,
+            "selected": selected,
+            "primary": primary
+            })
+    return sorted(result, key=cal_sort_key)
+
+
 
 def cal_sort_key( cal ):
     """
@@ -327,7 +460,7 @@ def cal_sort_key( cal ):
 def format_arrow_date( date ):
     try: 
         normal = arrow.get( date )
-        return normal.format("ddd MM/DD/YYYY")
+        return normal.format("ddd YYYY/MM/DD")
     except:
         return "(bad date)"
 
@@ -342,20 +475,36 @@ def format_arrow_time( time ):
 #############
 
 
-if __name__ == "__main__":
-  # App is created above so that it will
-  # exist whether this is 'main' or not
-  # (e.g., if we are running in a CGI script)
 
-  app.secret_key = str(uuid.uuid4())  
-  app.debug=CONFIG.DEBUG
-  app.logger.setLevel(logging.DEBUG)
-  # We run on localhost only if debugging,
-  # otherwise accessible to world
-  if CONFIG.DEBUG:
-    # Reachable only from the same computer
-    app.run(port=CONFIG.PORT)
-  else:
-    # Reachable from anywhere 
-    app.run(port=CONFIG.PORT,host="0.0.0.0")
+@app.template_filter( 'fmttimeblock' )
+def format_arrow_time( Datetime ):
+    return Datetime[11:]
+    # i couldn't figure out how to access start time and end time properly, this shows the blocks anyway, not ideal.
+#############
+
+
+
+
+
+
+if __name__ == "__main__":
+    
+    
+
+
+
+    import uuid
+    app.secret_key = str(uuid.uuid4())
+    app.debug=CONFIG.DEBUG
+    app.logger.setLevel(logging.DEBUG)
+
+
+
+	 # otherwise accessible to world
+    if CONFIG.DEBUG:
+      # Reachable only from the same computer
+      app.run(port=CONFIG.PORT)
+    else:
+      # Reachable from anywhere 
+      app.run(port=CONFIG.PORT,host="0.0.0.0")
     
